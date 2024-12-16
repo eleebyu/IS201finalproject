@@ -11,139 +11,379 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Snake Game</title>
+    <title>Minesweeper</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
             display: flex;
             justify-content: center;
             align-items: center;
             height: 100vh;
-            background-color: #f0f0f0;
+            margin: 0;
+            background-color: #f4f4f4;
+            flex-direction: column;
         }
 
-        canvas {
-            border: 2px solid black;
+        .container {
+            text-align: center;
         }
 
-        #score {
-            position: absolute;
-            top: 10px;
+        #grid {
+            display: grid;
+            gap: 2px;
+            margin: 20px;
+        }
+
+        .cell {
+            width: 30px;
+            height: 30px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #d3d3d3;
+            border: 1px solid #bbb;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        .revealed {
+            background-color: #e1e1e1;
+            cursor: default;
+        }
+
+        .mine {
+            background-image: url('https://img.icons8.com/ios-filled/50/000000/bomb.png');
+            background-size: 20px 20px; /* Smaller bomb icon */
+            background-repeat: no-repeat;
+            background-position: center;
+        }
+
+        .flag {
+            background-image: url('https://img.icons8.com/ios-filled/50/000000/flag.png');
+            background-size: 20px 20px; /* Smaller flag icon */
+            background-repeat: no-repeat;
+            background-position: center;
+            color: transparent; /* Hide the text */
+            border: 1px solid red;  /* Adds a red border around the flag */
+            background-color: red;  /* Sets the background color to red */
+        }
+
+        #status {
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+        }
+
+        #gameOverMessage {
             font-size: 20px;
             font-weight: bold;
+            color: red;
         }
+
+        #gridOptions {
+            margin-bottom: 20px;
+        }
+
+        #gameScreen {
+            display: block;
+        }
+
+        #endScreen {
+            display: none;
+        }
+
+        #winMessage {
+            display: none;
+        }
+
+        select {
+            padding: 10px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
     </style>
 </head>
 <body>
-    <div id="score">Score: 0</div>
-    <canvas id="gameCanvas" width="400" height="400"></canvas>
+    <div class="container">
+        <h1>Minesweeper</h1>
+
+        <div id="gridOptions">
+            <select id="gridSizeSelect">
+                <option value="5x5">Small Grid (5x5)</option>
+                <option value="10x10">Medium Grid (10x10)</option>
+                <option value="15x15">Large Grid (15x15)</option>
+            </select>
+        </div>
+
+        <div id="gameScreen">
+            <div id="status">
+                <button id="restartButton" style="display: none;">Restart Game</button>
+                <button id="backButton" style="display: none;">Back to Grid Options</button>
+                <p id="gameOverMessage" style="display: none;"></p>
+            </div>
+            <div id="grid"></div>
+        </div>
+
+        <div id="endScreen">
+            <p id="winMessage" style="display: none;"></p>
+            <button id="playAgainButton" style="display: none;">Play Again</button>
+            <button id="backFromEndButton">Back to Grid Options</button>
+        </div>
+    </div>
 
     <script>
-        const canvas = document.getElementById("gameCanvas");
-        const ctx = canvas.getContext("2d");
+        let rows = 10;
+        let cols = 10;
+        let numMines = 15;
+        let grid = [];
+        let gameOver = false;
+        let flagsLeft = numMines;
 
-        const snakeSize = 20;
-        let score = 0;
+        // Function to start a new game with selected grid size
+        function startNewGame() {
+            grid = [];
+            gameOver = false;
+            flagsLeft = numMines;
+            document.getElementById("gameOverMessage").style.display = "none";
+            document.getElementById("winMessage").style.display = "none";
+            document.getElementById("endScreen").style.display = "none";
+            document.getElementById("gridOptions").style.display = "none";
+            document.getElementById("gameScreen").style.display = "block";
 
-        let snake = [
-            { x: 160, y: 160 },
-            { x: 140, y: 160 },
-            { x: 120, y: 160 }
-        ];
+            const gridContainer = document.getElementById("grid");
+            gridContainer.innerHTML = "";
+            gridContainer.style.gridTemplateColumns = `repeat(${cols}, 30px)`;
+            gridContainer.style.gridTemplateRows = `repeat(${rows}, 30px)`;
 
-        let direction = "RIGHT";
-        let food = { x: 0, y: 0 };
+            for (let row = 0; row < rows; row++) {
+                const rowArr = [];
+                for (let col = 0; col < cols; col++) {
+                    const cell = {
+                        isMine: false,
+                        isRevealed: false,
+                        isFlagged: false,
+                        surroundingMines: 0
+                    };
+                    rowArr.push(cell);
 
-        // Function to randomize food position
-        function generateFood() {
-            food.x = Math.floor(Math.random() * (canvas.width / snakeSize)) * snakeSize;
-            food.y = Math.floor(Math.random() * (canvas.height / snakeSize)) * snakeSize;
+                    const cellElement = document.createElement("div");
+                    cellElement.classList.add("cell");
+                    cellElement.dataset.row = row;
+                    cellElement.dataset.col = col;
+                    cellElement.addEventListener("click", handleCellClick);
+                    cellElement.addEventListener("contextmenu", handleRightClick);
+                    gridContainer.appendChild(cellElement);
+                }
+                grid.push(rowArr);
+            }
+
+            placeMines();
+            calculateSurroundingMines();
         }
 
-        // Function to update game state
-        function updateGame() {
-            // Move snake
-            let head = { ...snake[0] };
+        // Place mines randomly
+        function placeMines() {
+            let minesPlaced = 0;
+            while (minesPlaced < numMines) {
+                const row = Math.floor(Math.random() * rows);
+                const col = Math.floor(Math.random() * cols);
 
-            if (direction === "UP") head.y -= snakeSize;
-            if (direction === "DOWN") head.y += snakeSize;
-            if (direction === "LEFT") head.x -= snakeSize;
-            if (direction === "RIGHT") head.x += snakeSize;
+                if (!grid[row][col].isMine) {
+                    grid[row][col].isMine = true;
+                    minesPlaced++;
+                }
+            }
+        }
 
-            // Check for collision with walls
-            if (head.x < 0 || head.x >= canvas.width || head.y < 0 || head.y >= canvas.height) {
-                resetGame();
+        // Calculate surrounding mines for each cell
+        function calculateSurroundingMines() {
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    if (grid[row][col].isMine) continue;
+
+                    let surroundingMines = 0;
+                    for (let r = row - 1; r <= row + 1; r++) {
+                        for (let c = col - 1; c <= col + 1; c++) {
+                            if (r >= 0 && r < rows && c >= 0 && c < cols && grid[r][c].isMine) {
+                                surroundingMines++;
+                            }
+                        }
+                    }
+                    grid[row][col].surroundingMines = surroundingMines;
+                }
+            }
+        }
+
+        // Handle left click (reveal cell)
+        function handleCellClick(event) {
+            if (gameOver || event.target.classList.contains("revealed")) return;
+
+            const row = parseInt(event.target.dataset.row);
+            const col = parseInt(event.target.dataset.col);
+            const cell = grid[row][col];
+
+            if (cell.isFlagged) return;
+
+            revealCell(row, col);
+
+            if (cell.isMine) {
+                gameOverMessage("Game Over! You clicked on a mine.");
+            } else if (isWin()) {
+                gameOverMessage("You won!");
+            }
+        }
+
+        // Handle right click (flag cell)
+        function handleRightClick(event) {
+            event.preventDefault();
+            if (gameOver || event.target.classList.contains("revealed")) return;
+
+            const row = parseInt(event.target.dataset.row);
+            const col = parseInt(event.target.dataset.col);
+            const cell = grid[row][col];
+
+            if (cell.isFlagged) {
+                cell.isFlagged = false;
+                flagsLeft++;
+                event.target.classList.remove("flag");
+                event.target.textContent = "";
+            } else if (flagsLeft > 0) {
+                cell.isFlagged = true;
+                flagsLeft--;
+                event.target.classList.add("flag");
+                event.target.textContent = "🚩";  // Red flag icon
+            }
+
+            updateStatus();
+        }
+
+        // Reveal a cell
+        function revealCell(row, col) {
+            const cell = grid[row][col];
+            const cellElement = document.querySelector(`[data-row='${row}'][data-col='${col}']`);
+
+            if (cell.isRevealed || cell.isFlagged) return;
+
+            cell.isRevealed = true;
+            cellElement.classList.add("revealed");
+
+            if (cell.isMine) {
+                cellElement.classList.add("mine");
+                cellElement.textContent = "💣";
+                revealAllMines();
                 return;
             }
 
-            // Check for collision with itself
-            for (let i = 1; i < snake.length; i++) {
-                if (head.x === snake[i].x && head.y === snake[i].y) {
-                    resetGame();
-                    return;
+            if (cell.surroundingMines > 0) {
+                cellElement.textContent = cell.surroundingMines;
+            } else {
+                for (let r = row - 1; r <= row + 1; r++) {
+                    for (let c = col - 1; c <= col + 1; c++) {
+                        if (r >= 0 && r < rows && c >= 0 && c < cols) {
+                            revealCell(r, c);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Reveal all mines when game over
+        function revealAllMines() {
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    if (grid[row][col].isMine) {
+                        const mineElement = document.querySelector(`[data-row='${row}'][data-col='${col}']`);
+                        mineElement.classList.add("mine");
+                        mineElement.textContent = "💣";
+                    }
+                }
+            }
+        }
+
+        // Check if the player has won
+        function isWin() {
+            let revealedCells = 0;
+            let totalCells = rows * cols;
+
+            for (let row = 0; row < rows; row++) {
+                for (let col = 0; col < cols; col++) {
+                    if (grid[row][col].isRevealed) {
+                        revealedCells++;
+                    }
                 }
             }
 
-            // Add new head to the snake
-            snake.unshift(head);
+            return revealedCells === totalCells - numMines;
+        }
 
-            // Check if snake eats food
-            if (head.x === food.x && head.y === food.y) {
-                score++;
-                generateFood();
-            } else {
-                snake.pop();
+        // Display game over message
+        function gameOverMessage(message) {
+            gameOver = true;
+            document.getElementById("gameOverMessage").textContent = message;
+            document.getElementById("gameOverMessage").style.display = "block";
+            document.getElementById("restartButton").style.display = "inline-block";
+            document.getElementById("backButton").style.display = "inline-block";
+            document.getElementById("endScreen").style.display = "block";
+            document.getElementById("playAgainButton").style.display = "none";
+        }
+
+        // Update status with remaining flags
+        function updateStatus() {
+            document.getElementById("status").textContent = `Flags Left: ${flagsLeft}`;
+        }
+
+        // Handle grid size change
+        document.getElementById("gridSizeSelect").addEventListener("change", function(event) {
+            const selectedSize = event.target.value;
+
+            if (selectedSize === "5x5") {
+                rows = 5;
+                cols = 5;
+                numMines = 5;
+            } else if (selectedSize === "10x10") {
+                rows = 10;
+                cols = 10;
+                numMines = 15;
+            } else if (selectedSize === "15x15") {
+                rows = 15;
+                cols = 15;
+                numMines = 30;
             }
 
-            // Draw game
-            drawGame();
-        }
-
-        // Function to draw everything
-        function drawGame() {
-            // Clear the canvas
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Draw snake
-            snake.forEach(segment => {
-                ctx.fillStyle = "green";
-                ctx.fillRect(segment.x, segment.y, snakeSize, snakeSize);
-            });
-
-            // Draw food
-            ctx.fillStyle = "red";
-            ctx.fillRect(food.x, food.y, snakeSize, snakeSize);
-
-            // Draw score
-            document.getElementById("score").textContent = `Score: ${score}`;
-        }
-
-        // Function to reset the game
-        function resetGame() {
-            snake = [
-                { x: 160, y: 160 },
-                { x: 140, y: 160 },
-                { x: 120, y: 160 }
-            ];
-            direction = "RIGHT";
-            score = 0;
-            generateFood();
-            drawGame();
-        }
-
-        // Event listener to change direction
-        document.addEventListener("keydown", (event) => {
-            if (event.key === "ArrowUp" && direction !== "DOWN") direction = "UP";
-            if (event.key === "ArrowDown" && direction !== "UP") direction = "DOWN";
-            if (event.key === "ArrowLeft" && direction !== "RIGHT") direction = "LEFT";
-            if (event.key === "ArrowRight" && direction !== "LEFT") direction = "RIGHT";
+            startNewGame();
         });
 
-        // Initialize the game
-        generateFood();
-        setInterval(updateGame, 100);
+        // Restart the game
+        document.getElementById("restartButton").addEventListener("click", function() {
+            startNewGame();
+        });
+
+        // Back to grid options
+        document.getElementById("backButton").addEventListener("click", function() {
+            document.getElementById("gameScreen").style.display = "none";
+            document.getElementById("gridOptions").style.display = "block";
+        });
+
+        // Play again after win
+        document.getElementById("playAgainButton").addEventListener("click", function() {
+            startNewGame();
+        });
+
+        // Back to grid options from win screen
+        document.getElementById("backFromEndButton").addEventListener("click", function() {
+            document.getElementById("endScreen").style.display = "none";
+            document.getElementById("gridOptions").style.display = "block";
+        });
+
+        // Start a new game when page loads
+        startNewGame();
     </script>
 </body>
 </html>
